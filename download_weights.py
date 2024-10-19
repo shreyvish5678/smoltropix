@@ -2,7 +2,10 @@ import os
 import tyro
 import torch
 import ml_dtypes
-import mlx.core as mx
+import numpy as np
+import tinygrad
+from tinygrad import Tensor, nn
+from tinygrad import dtypes
 from pathlib import Path
 
 from transformers import AutoModelForCausalLM
@@ -98,10 +101,9 @@ def main(model_id: str, out_dir: Path, hf_token: str):
                 #param = reverse_permute(param, n_heads=8, dim1=1024, dim2=6144)    # Mixtral8x22B
             else:
                 pass
-            bf16_np_out = param.cpu().view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
-            bf16_out = mx.array(bf16_np_out.tolist(), dtype=mx.bfloat16).reshape(*param.shape)
+            f16_np_out = param.cpu().view(dtype=torch.float16).numpy().reshape(*param.shape)
             print(f'Writing {hf_name} as {name} to {out_dir}/{name}.npy')
-            mx.save(f'{out_dir}/{name}.npy', bf16_out)
+            np.save(f'{out_dir}/{name}.npy', f16_np_out)
 
 
 if __name__ == "__main__":

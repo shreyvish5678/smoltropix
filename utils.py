@@ -1,5 +1,7 @@
-import mlx
-import mlx.core as mx
+import tinygrad 
+from tinygrad import Tensor
+from tinygrad import dtypes
+import numpy as np
 
 from typing import *
 
@@ -31,7 +33,7 @@ class complexarray:
     a smol hacky class for complex arrays using mlx functions
     because mlx does not have complex arrays apis
     """
-    def __init__(self, real: mx.array, imag: mx.array):
+    def __init__(self, real: Tensor, imag: Tensor):
         self.real = real
         self.imag = imag
 
@@ -40,8 +42,8 @@ class complexarray:
         return self.real.shape
     
     @classmethod
-    def from_polar(cls, r: mx.array, theta: mx.array) -> 'complexarray':
-        return cls(r * mx.cos(theta), r * mx.sin(theta))
+    def from_polar(cls, r: Tensor, theta: Tensor) -> 'complexarray':
+        return cls(r * Tensor.cos(theta), r * Tensor.sin(theta))
 
     def __add__(self, other: 'complexarray'):    # add two complex arrays
         return complexarray(self.real + other.real, self.imag + other.imag)
@@ -53,7 +55,7 @@ class complexarray:
         )
     
     def __abs__(self):
-        return mx.sqrt(self.real**2 + self.imag**2)
+        return Tensor.sqrt(self.real**2 + self.imag**2)
     
     def conj(self):
         return complexarray(self.real, -self.imag)
@@ -65,21 +67,21 @@ class complexarray:
 
         `exp(z) = exp(a) * (cos(b) + i * sin(b))`
         """
-        r = mx.exp(self.real)
-        return complexarray(r * mx.cos(self.imag), r * mx.sin(self.imag))
+        r = Tensor.exp(self.real)
+        return complexarray(r * Tensor.cos(self.imag), r * Tensor.sin(self.imag))
     
     def expand_dims(self, axis: int):
         """
         Adds new axis at the given axis
         """
-        return complexarray(mx.expand_dims(self.real, axis), mx.expand_dims(self.imag, axis))
+        return complexarray(self.real.unsqueeze(axis), self.imag.unsqueeze(axis))
     
     def __getitem__(self, key):
         return complexarray(self.real[key], self.imag[key])
 
 
 if __name__ == "__main__":
-    x, y = mx.random.uniform(shape=(3, 4)), mx.random.uniform(shape=(3, 4))
+    x, y = Tensor.rand(shape=(3, 4)), Tensor.rand(shape=(3, 4))
     f = complexarray(x, y)
     new = f[1:2]
     print(f.real)

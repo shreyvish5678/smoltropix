@@ -1,22 +1,24 @@
 from typing import NamedTuple
 
-import mlx
-import mlx.nn
-import mlx.core as mx
+import tinygrad
+from tinygrad import Tensor
+from tinygrad import dtypes
+import numpy as np
 
 
 class KVCache(NamedTuple):
-    k: mx.array
-    v: mx.array
+    k: Tensor
+    v: Tensor
 
     @classmethod
     def new(cls, layers: int, bsz: int, max_seq_len: int, kv_heads: int, head_dim: int) -> 'KVCache':
+        print((layers, bsz, max_seq_len, kv_heads, head_dim))
         return cls(
-            k = mx.zeros((layers, bsz, max_seq_len, kv_heads, head_dim), dtype=mx.bfloat16),
-            v = mx.zeros((layers, bsz, max_seq_len, kv_heads, head_dim), dtype=mx.bfloat16),
+            k = Tensor.zeros(layers, bsz, max_seq_len, kv_heads, head_dim, dtype=dtypes.float16).contiguous(),
+            v = Tensor.zeros(layers, bsz, max_seq_len, kv_heads, head_dim, dtype=dtypes.float16).contiguous(),
         )
 
-    def update(self, xk: mx.array, xv: mx.array, layer_idx: int, cur_pos: int, n_rep: int):
+    def update(self, xk: Tensor, xv: Tensor, layer_idx: int, cur_pos: int, n_rep: int):
         """
         Updates the cache with new key and value tensors.
 
@@ -32,8 +34,9 @@ class KVCache(NamedTuple):
                 - keys: Updated or repeated keys tensor.
                 - values: Updated or repeated values tensor.
         """
-        xk = xk.astype(self.k.dtype)
-        xv = xv.astype(self.v.dtype)
+        xk = xk.cast(self.k.dtype)
+        xv = xv.cast(self.v.dtype)
+        print(xk.dtype, xv.dtype)
 
         insert_len = xk.shape[1]
         self.k[layer_idx, :, cur_pos:cur_pos+insert_len, :, :] = xk
@@ -41,11 +44,11 @@ class KVCache(NamedTuple):
 
         if cur_pos == 0:
             # If inserting at the beginning, repeat the new keys and values
-            keys = mx.repeat(xk, n_rep, axis=2)
-            values = mx.repeat(xv, n_rep, axis=2)
+            keys = xk.expand(-1, -1, n_rep, -1)
+            values = xv.expand(-1, -1, n_rep, -1)
         else:
             # Otherwise, repeat the existing keys and values from the cache
-            keys = mx.repeat(self.k[layer_idx], n_rep, axis=2)
-            values = mx.repeat(self.v[layer_idx], n_rep, axis=2)
+            keys = xk.expand(-1, -1, self.k[layer_idx], -1) 
+            values = xv.expand(-1, -1, self.k[layer_idx], -1) 
 
         return keys, values, self

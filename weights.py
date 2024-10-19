@@ -1,28 +1,29 @@
 from typing import List, NamedTuple
-
-import mlx
-import mlx.nn
-import mlx.core as mx
+import os
+import tinygrad
+from tinygrad import Tensor, nn
+from tinygrad import dtypes
+import numpy as np
 
 from pathlib import Path
 
 
 class LayerWeights(NamedTuple):
-    wq: mx.array
-    wk: mx.array
-    wv: mx.array
-    wo: mx.array
-    w1: mx.array
-    w2: mx.array
-    w3: mx.array
-    ffn_norm: mx.array
-    attention_norm: mx.array
+    wq: Tensor
+    wk: Tensor
+    wv: Tensor
+    wo: Tensor
+    w1: Tensor
+    w2: Tensor
+    w3: Tensor
+    ffn_norm: Tensor
+    attention_norm: Tensor
 
 
 class XfmrWeights(NamedTuple):
-    tok_embeddings: mx.array
-    norm: mx.array
-    output: mx.array
+    tok_embeddings: Tensor
+    norm: Tensor
+    output: Tensor
     layer_weights: List[LayerWeights]
 
 
@@ -33,8 +34,8 @@ def load_weights(ckpt_dir: Path, n_layers: int = 16):
     w = {}
     layer_weights = []
     for file in ckpt_dir.glob("*.npy"):
-        name = '.'.join(str(file).split('/')[-1].split('.')[:-1])
-        weight = mx.load(str(file))
+        name = os.path.splitext(os.path.basename(file))[0]
+        weight = Tensor(np.load(file)).cast(dtypes.float16)
         w[name] = weight
     for i in range(n_layers):
         layer_weights.append(LayerWeights(

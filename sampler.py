@@ -1,8 +1,10 @@
 from typing import *
 
-import mlx
-import mlx.core as mx
-import mlx.nn
+import tinygrad
+from tinygrad import Tensor
+from tinygrad import dtypes
+import numpy as np
+from tinygrad import TinyJit
 
 from utils import COLORS
 
@@ -80,31 +82,33 @@ class SamplerConfig:
 
 
 # pure function, compile
-@mx.compile
-def calculate_varentropy_logsoftmax(logits: mx.array, axis: int = -1) -> Tuple[mx.array, mx.array]:
+@TinyJit
+def calculate_varentropy_logsoftmax(logits: Tensor, axis: int = -1) -> Tuple[Tensor, Tensor]:
     """
     Entropy and varentropy from logits using log softmax function.
     """    
-    log_probs = mlx.nn.log_softmax(logits, axis=axis)
-    probs = mx.exp(log_probs)
-    entropy = -mx.sum(probs * log_probs, axis=axis) / LN_2
-    varentropy = mx.sum(probs * (log_probs / LN_2 + mx.expand_dims(entropy, -1))**2, axis=axis)
+    log_probs = Tensor.log_softmax(logits, axis=axis)
+    probs = Tensor.exp(log_probs)
+    entropy = -Tensor.sum(probs * log_probs, axis=axis) / LN_2
+    varentropy = Tensor.sum(probs * (log_probs / LN_2 + entropy.unsqueeze(-1))**2, axis=axis)
     return entropy, varentropy
 
 
-def multinominal_sample_one(probs_sort: mx.array, key: mx.array) -> mx.array:
+def multinominal_sample_one(probs_sort: Tensor, key: int) -> Tensor:
     """
     Samples one token from a multinomial distribution with sorted probabilities.
     """
     # mlx does not have the exponential random distribution
     # but we can model it using the uniform distribution like below
     # taking 1 - u to move the domain of log to (0, 1] instead of [0, 1)
-    u = mx.random.uniform(key=key, shape=probs_sort.shape)
-    q = -mx.log1p(mx.negative(u))
-    return mx.argmax(probs_sort / q, axis=-1, keepdims=True).astype(mx.int32)
+    Tensor.manual_seed(key)
+    np.random.seed(key)
+    u = Tensor.rand(shape=probs_sort.shape)
+    q = -Tensor.log(Tensor.negative(u) + 1)
+    return Tensor.argmax(probs_sort / q, axis=-1, keepdims=True).cast(dtypes.int32)
 
 
-def flip(x: mx.array, axis: int = -1):
+def flip(x: Tensor, axis: int = -1):
     """
     Reverse the order of elements along a given axis
     """
@@ -113,89 +117,89 @@ def flip(x: mx.array, axis: int = -1):
     return x[tuple(slices)]
 
 
-def calculate_metrics(logits: mx.array, attention_scores: mx.array) -> Dict[str, mx.array]:
+def calculate_metrics(logits: Tensor, attention_scores: Tensor) -> Dict[str, Tensor]:
     entropy, varentropy = calculate_varentropy_logsoftmax(logits)
 
-    attention_probs = mlx.nn.softmax(attention_scores, axis=-1)
-    attn_entropy = -mx.sum(attention_probs * mx.log2(mx.clip(attention_probs, 1e-7, 1.0)), axis=-1)
-    attn_varentropy = mx.var(attn_entropy, axis=1)
+    attention_probs = Tensor.softmax(attention_scores, axis=-1)
+    attn_entropy = -Tensor.sum(attention_probs * Tensor.log2(Tensor.clip(attention_probs, 1e-7, 1.0)), axis=-1)
+    attn_varentropy = Tensor.var(attn_entropy, axis=1)
 
-    mean_attention = mx.mean(attention_probs, axis=1)
-    agreement = mx.mean(mx.abs(attention_probs - mx.expand_dims(mean_attention, 1)), axis=(1, 2))
+    mean_attention = Tensor.mean(attention_probs, axis=1)
+    agreement = Tensor.mean(Tensor.abs(attention_probs - mean_attention.unsqueeze(1)), axis=(1, 2))
 
-    interaction_strength = mx.mean(mx.abs(attention_scores), axis=(1, 2, 3))
+    interaction_strength = Tensor.mean(Tensor.abs(attention_scores), axis=(1, 2, 3))
 
     return dict(
-        logits_entropy=mx.mean(entropy),
-        logits_varentropy=mx.mean(varentropy),
-        attn_entropy=mx.mean(attn_entropy),
-        attn_varentropy=mx.mean(attn_varentropy),
-        agreement=mx.mean(agreement),
+        logits_entropy=Tensor.mean(entropy),
+        logits_varentropy=Tensor.mean(varentropy),
+        attn_entropy=Tensor.mean(attn_entropy),
+        attn_varentropy=Tensor.mean(attn_varentropy),
+        agreement=Tensor.mean(agreement),
         interaction_strength=interaction_strength
     )
 
 
-def _in1d(element: mx.array, test_elements: mx.array, invert: bool = False) -> mx.array:
+def _in1d(element: Tensor, test_elements: Tensor, invert: bool = False) -> Tensor:
     arr1, arr2 = element.flatten(), test_elements.flatten()
     if arr1.size == 0 or arr2.size == 0:
-        return mx.ones(arr1.shape, dtype=mx.bool_) if invert else mx.zeros(arr1.shape, dtype=mx.bool_)
+        return Tensor.ones(arr1.shape, dtype=dtypes.bool) if invert else Tensor.zeros(arr1.shape, dtype=dtypes.bool)
     if invert:
-        return (mx.expand_dims(arr1, -1) != mx.expand_dims(arr2, 0)).all(-1)
-    return (mx.expand_dims(arr1, -1) == mx.expand_dims(arr2, 0)).any(-1)
+        return (arr1.unsqueeze(-1) != arr2.unsqueeze(0)).all(-1)
+    return (arr1.unsqueeze(-1) == arr2.unsqueeze(0)).any(-1)
 
 
-def isin(element: mx.array, test_elements: mx.array, invert: bool = False) -> mx.array:
+def isin(element: Tensor, test_elements: Tensor, invert: bool = False) -> Tensor:
     """
     hacky isin function to mimic `jax.numpy.isin`
     """
-    ele = mx.array(element) if not isinstance(element, mx.array) else element
-    tele = mx.array(test_elements) if not isinstance(test_elements, mx.array) else test_elements
+    ele = Tensor(element) if not isinstance(element, Tensor) else element
+    tele = Tensor(test_elements) if not isinstance(test_elements, Tensor) else test_elements
     result = _in1d(ele, tele, invert=invert)
     return result.reshape(element.shape)
 
 
 def _sample(
-        logits: mx.array, *, temperature: Union[float, mx.array], top_p: Union[float, mx.array], 
-        top_k: Union[int, mx.array], min_p: Union[float, mx.array], key: mx.array = None
-    ) -> mx.array:
+        logits: Tensor, *, temperature: Union[float, Tensor], top_p: Union[float, Tensor], 
+        top_k: Union[int, Tensor], min_p: Union[float, Tensor], key: int = None
+    ) -> Tensor:
     if key is None:
-        key = mx.random.key(1337)
+        key = 1337
 
     bsz = logits.shape[0]
     logit = logits[:, -1]
-    probs = mlx.nn.softmax(logit / temperature, axis=-1)
+    probs = Tensor.softmax(logit / temperature, axis=-1)
     
     # apply min_p sampling
     if min_p > 0.0:
-        p_max = mx.max(probs, axis=-1, keepdims=True)
+        p_max = Tensor.max(probs, axis=-1, keepdims=True)
         indices_to_remove = probs < (min_p * p_max)
-        replacement = mx.ones_like(logit) * float('-inf')
-        logit = mx.where(indices_to_remove, replacement, logit)
+        replacement = Tensor.ones_like(logit) * float('-inf')
+        logit = Tensor.where(indices_to_remove, replacement, logit)
 
     # apply top-k sampling
-    _indices = mx.argsort(-probs, axis=-1)
-    top_k_indices = mx.take(_indices, mx.arange(top_k), axis=-1)
-    top_k_probs = mx.take_along_axis(probs, top_k_indices, axis=-1)
+    _indices = np.argsort(-probs, axis=-1)
+    top_k_indices = _indices[:, :top_k]
+    top_k_probs = np.take_along_axis(probs, top_k_indices, axis=-1)
     probs_sort = flip(top_k_probs, axis=-1)
     probs_idx = flip(top_k_indices, axis=-1)
-    probs_sum = mx.cumsum(probs_sort, axis=-1)
+    probs_sum = Tensor(np.cumsum(probs_sort, axis=-1))
 
     # apply top_p sampling
-    mask = mx.where(probs_sum - probs_sort > top_p, 1.0, 0.0)
+    mask = Tensor.where(probs_sum - probs_sort > top_p, 1.0, 0.0)
     probs_sort = probs_sort * (1 - mask)
-    probs_sort = probs_sort / mx.sum(probs_sort, axis=-1, keepdims=True)
+    probs_sort = probs_sort / Tensor.sum(probs_sort, axis=-1, keepdims=True)
     next_token = multinominal_sample_one(probs_sort, key)
-    next_token_g = mx.take_along_axis(probs_idx, next_token.reshape(bsz, 1), axis=-1)
-    return next_token_g.astype(mx.int32)
+    next_token_g = Tensor.take_along_axis(probs_idx, next_token.reshape(bsz, 1), axis=-1)
+    return next_token_g.cast(dtypes.int32)
 
 
 # our hero
 def sample(
-        gen_tokens: mx.array, logits: mx.array, attention_scores: mx.array, cfg: SamplerConfig,
-        clarifying_question_token: int = 2564, key: mx.array = None
-    ) -> Tuple[mx.array, str, dict]:
+        gen_tokens: Tensor, logits: Tensor, attention_scores: Tensor, cfg: SamplerConfig,
+        clarifying_question_token: int = 2564, key: int = None
+    ) -> Tuple[Tensor, str, dict]:
     if key is None:
-        key = mx.random.key(1337)
+        key = 1337
     
     metrics = calculate_metrics(logits, attention_scores)
     ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]
@@ -210,7 +214,7 @@ def sample(
         attn_vent < cfg.low_attention_varentropy_threshold and
         agreement < cfg.low_agreement_threshold and
         interaction_strength < cfg.low_interaction_strength_threshold):
-        return mx.argmax(logits[:, -1], axis=-1, keepdims=True).astype(mx.int32), COLORS["lelv"], metrics
+        return Tensor.argmax(logits[:, -1], axis=-1, keepdims=True).cast(dtypes.int32), COLORS["lelv"], metrics
     
     # high entropy, low varentropy = "treading carefully, asking clarifying questions"
     # the model is uncertain but consistently so, leading to careful sampling or 
@@ -221,7 +225,7 @@ def sample(
           agreement < cfg.low_agreement_threshold and
           interaction_strength < cfg.low_interaction_strength_threshold):
         if not isin(gen_tokens[:, -1], clarifying_question_token).any():
-            return mx.array([[clarifying_question_token]]), COLORS["hehv"], metrics
+            return Tensor([[clarifying_question_token]]), COLORS["hehv"], metrics
         else:
             # if we've just asked a question, sample with slightly higher temperature
             temp_adj = cfg.helv_attn_ent_offset + cfg.helv_attn_ent_coef * attn_ent
@@ -256,15 +260,15 @@ def sample(
         attn_uncertainty = metrics["attn_entropy"] + metrics["attn_varentropy"]
 
         temperature = cfg.temp * (1 + cfg.ada_temp_logits * ent + cfg.ada_temp_attn * attn_ent - cfg.ada_temp_agree * metrics["agreement"])
-        top_p = mx.clip(cfg.top_p * (1 + cfg.ada_top_p * metrics["attn_varentropy"]), 0.1, 1.0)
-        top_k = mx.clip(
-            mx.round(cfg.top_k * (1 + cfg.ada_top_k_int * metrics["interaction_strength"].item() - cfg.ada_top_k_agree * metrics["agreement"].item())),
+        top_p = Tensor.clip(cfg.top_p * (1 + cfg.ada_top_p * metrics["attn_varentropy"]), 0.1, 1.0)
+        top_k = Tensor.clip(
+            Tensor.round(cfg.top_k * (1 + cfg.ada_top_k_int * metrics["interaction_strength"].item() - cfg.ada_top_k_agree * metrics["agreement"].item())),
             a_min=1,
             a_max=100
-        ).astype(mx.uint32).item()
-        min_p = mx.clip(cfg.min_p * (1 - cfg.ada_min_p * vent), 0.01, 0.5)
+        ).cast(dtypes.uint32).item()
+        min_p = Tensor.clip(cfg.min_p * (1 - cfg.ada_min_p * vent), 0.01, 0.5)
 
-        keys = mx.random.split(key, cfg.n_adaptive_samples)
+        keys = [key + i for i in range(cfg.n_adaptive_samples)]
 
         # basically, sample n(5) number of times
         # choose the best from it
@@ -273,12 +277,12 @@ def sample(
             sample = _sample(logits, temperature=temperature, top_p=top_p, top_k=top_k, min_p=min_p, key=sample_key)
             samples.append(sample)
 
-        def score_sample(sample: mx.array):
+        def score_sample(sample: Tensor):
             bsz, seqlen = sample.shape
             vbsz = logits.shape[-1]
-            one_hot = mx.zeros((bsz, seqlen, vbsz))
-            one_hot[mx.arange(bsz)[:, None], mx.arange(seqlen)[None, :], sample] = 1
-            log_prob = mx.sum(mlx.nn.log_softmax(logits) * one_hot)
+            one_hot = Tensor.zeros((bsz, seqlen, vbsz))
+            one_hot[Tensor.arange(bsz)[:, None], Tensor.arange(seqlen)[None, :], sample] = 1
+            log_prob = Tensor.sum(Tensor.log_softmax(logits) * one_hot)
             confidence_score = (
                 (1 - ent / cfg.high_ent_thresh) * cfg.ada_score_logits_ent +
                 (1 - attn_ent / cfg.high_attention_entropy_threshold) * cfg.ada_score_attn_ent +
@@ -290,5 +294,5 @@ def sample(
             return log_prob + confidence_score
         
         sample_scores = [score_sample(sample) for sample in samples]
-        best_sample_idx = mx.argmax(mx.array(sample_scores)).item()
+        best_sample_idx = Tensor.argmax(Tensor(sample_scores)).item()
         return samples[best_sample_idx], COLORS["ada"], metrics
