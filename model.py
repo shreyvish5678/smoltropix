@@ -18,8 +18,7 @@ float32_max = struct.unpack('f', struct.pack('I', 0x7f7fffff))[0]
 DEFAULT_MAX_VALUE = -0.7 * float32_max
 
 def rms_norm(x: Tensor, w: Tensor, eps: float = 1e-10) -> Tensor:
-    print(x.dtype, w.dtype)
-    return x * (x.square().mean(-1, keepdim=True) + eps).rsqrt().cast(x.dtype) * w
+    return x * (x.square().mean(-1, keepdim=True).cast(dtypes.float32).add(eps).rsqrt().cast(x.dtype)) * w
 
 
 def apply_rotary_emb(xq: Tensor, xk: Tensor, freqs_cis: complexarray, dtype: dtypes = dtypes.float32) -> Tuple[Tensor, Tensor]:
@@ -44,10 +43,12 @@ def attention(x: Tensor, layer_weights: LayerWeights, model_params: ModelParams,
     xk = Tensor.matmul(x, layer_weights.wk.T).reshape(bsz, -1, model_params.n_local_kv_heads, model_params.head_dim)
     xv = Tensor.matmul(x, layer_weights.wv.T).reshape(bsz, -1, model_params.n_local_kv_heads, model_params.head_dim)
     xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+    print(xq.shape, xk.shape, xv.shape)
     keys, values, kvcache = kvcache.update(xk, xv, layer_idx, cur_pos, n_rep)
-    xq = Tensor.transpose(xq, (0, 2, 1, 3))     # (bs, n_heads, seqlen, head_dim)
-    keys = Tensor.transpose(keys, (0, 2, 3, 1))     # (bs, n_heads, head_dim, cache_len + seqlen)
-    values = Tensor.transpose(values, (0, 2, 1, 3))     # (bs, n_heads, cache_len + seqlen, head_dim)
+    xq = xq.reshape(bsz, model_params.n_local_heads, -1, model_params.head_dim) # (bs, n_heads, seqlen, head_dim)
+    keys = keys.reshape(bsz, model_params.n_local_kv_heads, model_params.head_dim, -1) # (bs, n_kv_heads, head_dim, seqlen)
+    values = values.reshape(bsz, model_params.n_local_kv_heads, -1, model_params.head_dim) # (bs, n_kv_heads, seqlen, head_dim)
+    print(xq.shape, keys.shape, values.shape)
     scores = Tensor.matmul(xq, keys)
     pre_scores = scores / math.sqrt(model_params.head_dim)
     scores = pre_scores.cast(dtypes.float32)  # always do attention softmax at float32

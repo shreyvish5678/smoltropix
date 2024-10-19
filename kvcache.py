@@ -12,7 +12,6 @@ class KVCache(NamedTuple):
 
     @classmethod
     def new(cls, layers: int, bsz: int, max_seq_len: int, kv_heads: int, head_dim: int) -> 'KVCache':
-        print((layers, bsz, max_seq_len, kv_heads, head_dim))
         return cls(
             k = Tensor.zeros(layers, bsz, max_seq_len, kv_heads, head_dim, dtype=dtypes.float16).contiguous(),
             v = Tensor.zeros(layers, bsz, max_seq_len, kv_heads, head_dim, dtype=dtypes.float16).contiguous(),
@@ -36,7 +35,6 @@ class KVCache(NamedTuple):
         """
         xk = xk.cast(self.k.dtype)
         xv = xv.cast(self.v.dtype)
-        print(xk.dtype, xv.dtype)
 
         insert_len = xk.shape[1]
         self.k[layer_idx, :, cur_pos:cur_pos+insert_len, :, :] = xk
@@ -44,11 +42,11 @@ class KVCache(NamedTuple):
 
         if cur_pos == 0:
             # If inserting at the beginning, repeat the new keys and values
-            keys = xk.expand(-1, -1, n_rep, -1)
-            values = xv.expand(-1, -1, n_rep, -1)
+            keys = xk.repeat(1, 1, n_rep, 1)
+            values = xv.repeat(1, 1, n_rep, 1)
         else:
-            # Otherwise, repeat the existing keys and values from the cache
-            keys = xk.expand(-1, -1, self.k[layer_idx], -1) 
-            values = xv.expand(-1, -1, self.k[layer_idx], -1) 
+            # Otherwise, use the existing keys and values from the cache
+            keys = self.k[layer_idx, :, :cur_pos+insert_len]
+            values = self.v[layer_idx, :, :cur_pos+insert_len]
 
         return keys, values, self
