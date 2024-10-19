@@ -15,8 +15,8 @@ class AttnStats(NamedTuple):
     @classmethod
     def new(cls, bsz: int, n_layers: int, n_heads: int) -> 'AttnStats':
         return cls(
-            entropy=Tensor.zeros((bsz, n_layers, n_heads), dtype=dtypes.float32),
-            varentropy=Tensor.zeros((bsz, n_layers, n_heads), dtype=dtypes.float32),
+            entropy=Tensor.zeros((bsz, n_layers, n_heads), dtype=dtypes.float32).contiguous(),
+            varentropy=Tensor.zeros((bsz, n_layers, n_heads), dtype=dtypes.float32).contiguous(),
             n_layers=n_layers,
             n_heads=n_heads
         )
