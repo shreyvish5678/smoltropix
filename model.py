@@ -48,7 +48,6 @@ def attention(x: Tensor, layer_weights: LayerWeights, model_params: ModelParams,
     keys = keys.permute(0, 2, 3, 1)     # (bs, n_heads, head_dim, cache_len + seqlen)
     values = values.permute(0, 2, 1, 3)     # (bs, n_heads, cache_len + seqlen, head_dim)
     # Repeat keys and values to match the number of query heads
-
     scores = Tensor.matmul(xq, keys)
     pre_scores = scores / math.sqrt(model_params.head_dim)
     scores = pre_scores.cast(dtypes.float32)  # always do attention softmax at float32
@@ -58,7 +57,6 @@ def attention(x: Tensor, layer_weights: LayerWeights, model_params: ModelParams,
     padded_logits = Tensor.where((mask >= DEFAULT_MAX_VALUE * 0.5), scores, DEFAULT_MAX_VALUE)
     scores = Tensor.softmax(padded_logits, axis=-1).cast(x.dtype)
     output = Tensor.matmul(scores, values)
-    print(output.shape)
     output = output.permute(0, 2, 1, 3).reshape(xq.shape[0], xq.shape[2], -1)
     out = Tensor.matmul(output, layer_weights.wo.T)
     return out, kvcache, pre_scores

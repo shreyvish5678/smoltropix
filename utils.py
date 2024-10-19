@@ -81,10 +81,10 @@ class complexarray:
 
 
 if __name__ == "__main__":
-    x, y = Tensor.rand(shape=(3, 4)), Tensor.rand(shape=(3, 4))
+    x, y = Tensor.rand(3, 4), Tensor.rand(3, 4)
     f = complexarray(x, y)
     new = f[1:2]
-    print(f.real)
-    print(f.imag)
-    print(new.real)
-    print(new.imag)
+    print(f.real.numpy())
+    print(f.imag.numpy())
+    print(new.real.numpy())
+    print(new.imag.numpy())

@@ -75,7 +75,7 @@ def main(input: str, weights_path: Path = DEFAULT_WEIGHTS_PATH.joinpath("1B-Inst
         freqs_cis = precompute_freqs_cis(model_params.head_dim, model_params.max_seq_len, model_params.rope_theta, model_params.use_scaled_rope)
         kvcache = KVCache.new(model_params.n_layers, bsz, model_params.max_seq_len, model_params.n_local_kv_heads, model_params.head_dim)
         logits, kvcache, _, _ = xfmr(xfmr_weights, model_params, tokens, cur_pos, freqs_cis[:seqlen], kvcache, attn_mask=attn_mask)
-        next_token = Tensor.argmax(logits[:, -1], axis=-1, keepdims=True).cast(dtypes.int32)
+        next_token = Tensor.argmax(logits[:, -1], axis=-1, keepdim=True).cast(dtypes.int32)
         gen_tokens = next_token
         rich.print("[{}]{}[/]".format(COLORS["lelv"], tokenizer.decode([next_token.item()])), end='', flush=True)
         cur_pos = seqlen
